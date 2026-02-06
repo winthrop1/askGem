@@ -11,7 +11,8 @@ from datetime import datetime, timezone, timedelta
 from collections import deque
 
 from dotenv import load_dotenv
-from telegram import Update, ChatAction
+from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -34,7 +35,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BOT_USERNAME = "@gonkted_bot"
 DAILY_LIMIT = 1500
 WARNING_THRESHOLD = 1350  # 90% of daily limit
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 TEMPERATURE = 0.3
 MAX_OUTPUT_TOKENS = 500
 
@@ -211,9 +212,14 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not message or not message.text:
         return
 
+    logger.info("Received message in %s: %r", message.chat.type, message.text)
+
     # Only respond if this bot is mentioned
     if BOT_USERNAME.lower() not in message.text.lower():
+        logger.info("Bot not mentioned, ignoring. Looking for %r", BOT_USERNAME.lower())
         return
+
+    logger.info("Bot mentioned! Processing...")
 
     chat_id = message.chat_id
     searching_msg = None
@@ -338,6 +344,15 @@ def main() -> None:
     # Build Telegram application
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # Debug handler — logs ALL incoming messages (remove after debugging)
+    async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        msg = update.message or update.edited_message or update.channel_post
+        if msg:
+            logger.info(
+                "DEBUG — chat_type=%s, chat_id=%s, text=%r",
+                msg.chat.type, msg.chat.id, msg.text,
+            )
+
     # Register handlers (commands first, then message handler)
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("usage", usage_command))
@@ -346,6 +361,10 @@ def main() -> None:
             filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
             handle_mention,
         )
+    )
+    # Catch-all debug handler (group=1 so it runs alongside other handlers)
+    application.add_handler(
+        MessageHandler(filters.ALL, debug_handler), group=1
     )
 
     logger.info("Bot started. Listening for mentions as %s", BOT_USERNAME)

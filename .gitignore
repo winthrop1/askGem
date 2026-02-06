@@ -26,3 +26,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# documentation build
+PROJECTS.md
+STATE.md
