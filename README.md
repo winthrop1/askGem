@@ -1,22 +1,32 @@
 # gonk - Telegram AI Bot
 
-A friendly Telegram bot powered by Google Gemini 1.5 Flash with Google Search grounding. Mention **@gonkted_bot** in any group chat and get search-backed answers.
+A friendly Telegram bot powered by Google Gemini with Google Search grounding. Mention **@gonkted_bot** in any group chat and get search-backed answers.
 
 ## Features
 
 - **Google Search grounding** — answers are backed by real-time web search
 - **Conversation memory** — remembers the last 5 messages for context
-- **Rate limit tracking** — monitors daily usage against Gemini's 1,500 request limit
-- **Built-in analytics** — `/usage` command shows requests, error rate, and response times
+- **Multi-model support** — cycle between 3 Gemini models with `/model`
+- **Chat allowlist** — restrict bot to specific groups via `ALLOWED_CHAT_IDS`
 - **Group-only** — responds to @mentions in groups, ignores DMs
+
+## Available Models
+
+| Model | Speed | Free Tier Limit |
+|-------|-------|-----------------|
+| gemini-2.5-flash-lite (default) | Fastest | 1,000 RPD |
+| gemini-2.5-flash | Balanced | 250 RPD |
+| gemini-2.5-pro | Best quality | 100 RPD |
+
+Use `/model` to cycle between them. If one model hits its rate limit, switch to another.
 
 ## Local Setup
 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/telegram-ai-bot.git
-cd telegram-ai-bot
+git clone https://github.com/winthrop1/Telegram-AI-chatbot.git
+cd Telegram-AI-chatbot
 ```
 
 ### 2. Create a virtual environment
@@ -38,6 +48,7 @@ pip install -r requirements.txt
 1. Message [@BotFather](https://t.me/botfather) on Telegram
 2. Send `/newbot` and follow the prompts
 3. Copy the token
+4. **Important:** Send `/mybots` > select your bot > Bot Settings > Group Privacy > Turn off
 
 **Google Gemini API Key:**
 1. Go to [Google AI Studio](https://aistudio.google.com/)
@@ -55,7 +66,10 @@ Edit `.env` and replace the placeholder values with your actual keys:
 ```
 TELEGRAM_BOT_TOKEN=your_actual_token
 GEMINI_API_KEY=your_actual_key
+ALLOWED_CHAT_IDS=
 ```
+
+`ALLOWED_CHAT_IDS` is optional. Leave empty to allow all groups. To restrict, add comma-separated chat IDs (e.g., `-1001234567890,-1009876543210`). You can find your group's chat ID in the bot logs when it receives a mention.
 
 ### 6. Run the bot
 
@@ -77,16 +91,11 @@ Add @gonkted_bot to your Telegram group, then mention it with a question:
 
 ### Commands
 
-| Command  | Description                          |
-|----------|--------------------------------------|
-| `/start` | Welcome message and usage guide      |
-| `/usage` | Analytics: requests, errors, uptime  |
-
-### Rate Limits
-
-- **Daily limit:** 1,500 requests (Gemini free tier)
-- **Warning:** Notification sent at 90% usage (1,350 requests)
-- **Reset:** Daily at 00:00 UTC
+| Command  | Description                            |
+|----------|----------------------------------------|
+| `/start`  | Welcome message and usage guide        |
+| `/status` | Show current model                     |
+| `/model`  | Cycle to the next Gemini model         |
 
 ## Deploy to Render.com
 
@@ -105,11 +114,11 @@ git push -u origin main
 
 ### 3. Configure the service
 
-| Setting         | Value                          |
-|-----------------|--------------------------------|
-| **Environment** | Python                         |
+| Setting           | Value                             |
+|-------------------|-----------------------------------|
+| **Environment**   | Python                            |
 | **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `python bot.py`               |
+| **Start Command** | `python bot.py`                   |
 
 ### 4. Add environment variables
 
@@ -117,6 +126,7 @@ In the Render dashboard, add:
 
 - `TELEGRAM_BOT_TOKEN` — your Telegram bot token
 - `GEMINI_API_KEY` — your Google Gemini API key
+- `ALLOWED_CHAT_IDS` — (optional) comma-separated group chat IDs
 
 ### 5. Deploy
 
@@ -137,5 +147,5 @@ telegram-ai-bot/
 ## Tech Stack
 
 - [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) v21 — async Telegram Bot API
-- [Google GenAI SDK](https://github.com/googleapis/python-genai) — Gemini 1.5 Flash with search grounding
+- [Google GenAI SDK](https://github.com/googleapis/python-genai) — Gemini models with search grounding
 - [python-dotenv](https://github.com/theskumar/python-dotenv) — environment variable management

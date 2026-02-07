@@ -1,11 +1,14 @@
 """
-gonk - A Telegram AI bot powered by Google Gemini 1.5 Flash.
+gonk - A Telegram AI bot powered by Google Gemini.
 Responds to @mentions in group chats with search-grounded answers.
+Supports multiple Gemini models (cycle with /model).
 """
 
 import os
 import re
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from collections import deque
 
 from dotenv import load_dotenv
@@ -29,6 +32,12 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Chat allowlist — comma-separated chat IDs in .env, empty = allow all
+_raw_ids = os.getenv("ALLOWED_CHAT_IDS", "")
+ALLOWED_CHAT_IDS: set[int] = {
+    int(cid.strip()) for cid in _raw_ids.split(",") if cid.strip()
+}
 
 BOT_USERNAME = "@gonkted_bot"
 GEMINI_MODELS = [
@@ -132,15 +141,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Note: I only respond to mentions in groups, not DMs.\n\n"
         "Commands:\n"
         "  /start  - This welcome message\n"
-        "  /usage  - Show current model\n"
+        "  /status - Show current model\n"
         "  /model  - Switch to next model\n\n"
         "Let's chat!"
     )
     await update.message.reply_text(welcome)
 
 
-async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /usage command — show current model."""
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /status command — show current model."""
     model = GEMINI_MODELS[current_model_index]
     text = (
         "📊 Bot Status\n\n"
@@ -161,9 +170,14 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if BOT_USERNAME.lower() not in message.text.lower():
         return
 
-    logger.info("Bot mentioned! Processing...")
-
     chat_id = message.chat_id
+    logger.info("Bot mentioned in chat %d", chat_id)
+
+    # Allowlist check (empty = allow all)
+    if ALLOWED_CHAT_IDS and chat_id not in ALLOWED_CHAT_IDS:
+        logger.info("Chat %d not in allowlist, ignoring", chat_id)
+        return
+
     searching_msg = None
 
     try:
@@ -257,7 +271,7 @@ def main() -> None:
 
     # Register handlers (commands first, then message handler)
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("usage", usage_command))
+    application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("model", model_command))
     application.add_handler(
         MessageHandler(
@@ -265,6 +279,22 @@ def main() -> None:
             handle_mention,
         )
     )
+
+    # Start health check server for Render (responds to HTTP health checks)
+    port = int(os.getenv("PORT", 10000))
+
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+
+        def log_message(self, *args):
+            pass  # Suppress noisy HTTP logs
+
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger.info("Health check server running on port %d", port)
 
     logger.info("Bot started. Listening for mentions as %s", BOT_USERNAME)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
