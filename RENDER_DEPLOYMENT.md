@@ -5,11 +5,16 @@ A complete guide to deploy askGem to Render's free tier for 24/7 hosting.
 ## What You'll Get
 
 - **Free Tier Benefits**:
-  - Always-on bot (no spinning down)
+  - Continuous polling (bot runs while active)
   - Auto-restart on failure
   - Custom domain support
   - Easy environment variable management
   - Git integration for auto-deployments
+
+- **Limitations**:
+  - Free tier services spin down after 15 minutes of inactivity
+  - First request after spin-down has ~30 second delay
+  - Good for active groups; not ideal for dormant groups
 
 - **Requirements**:
   - GitHub account (for git integration)
@@ -231,10 +236,16 @@ To add a custom domain (optional):
 ## Cost
 
 **Free Tier is completely free:**
-- ✅ 750 compute hours/month (bot runs 24/7 = ~730 hours)
+- ✅ Free tier with 750 compute hours/month allowance
+- ✅ Service spins down after 15 minutes of inactivity
+- ✅ Automatic restart on first request after spin-down
 - ✅ No credit card required (unless you upgrade)
 - ✅ Auto-redeploy on git push
 - ✅ SSL certificate included
+
+**Uptime Notes:**
+- **Free tier**: Good for active groups (spins down when unused, resumes on mention)
+- **Paid tier**: Required for true 24/7 uptime without spin-down
 
 **You pay for:**
 - Telegram API (free)

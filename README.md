@@ -140,11 +140,13 @@ askGem can run 24/7 on Render's free tier with no credit card required.
 See [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md) for complete step-by-step instructions, troubleshooting, and maintenance tips.
 
 **Key Features:**
-- ✅ Free tier (24/7 uptime, auto-restart)
+- ✅ Free tier (auto-restart, easy setup)
 - ✅ Auto-deploy on git push
 - ✅ Easy environment variable management
 - ✅ Built-in health checks
 - ✅ Custom domain support (optional)
+
+**Note:** Free tier services spin down after 15 minutes of inactivity (good for active groups, respins on first message)
 
 ## Project Structure
 

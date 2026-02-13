@@ -2,9 +2,11 @@
 
 Get askGem running in 5 minutes. Choose your path:
 
-## Option A: Deploy to Render (Recommended for Always-On Bot)
+## Option A: Deploy to Render (Recommended for Continuous Deployment)
 
 **Total time: 10 minutes**
+
+**Note:** Render's free tier spins down after 15 minutes of inactivity. The bot automatically resumes when someone mentions it in a group (slight delay). For persistent 24/7 uptime, upgrade to a paid plan.
 
 ### 1. Get tokens (2 minutes)
 
