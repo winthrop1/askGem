@@ -8,8 +8,6 @@ A friendly AI-powered Telegram bot that answers questions in group chats using G
 - ⚡ [Quick Start (5 min)](./QUICKSTART.md) — Get running in minutes
 - 🚀 [Deploy to Render (Free Tier)](./RENDER_DEPLOYMENT.md) — Production setup
 - 📖 [Local Setup](#local-setup) — Development mode
-- 🏗️ [Architecture](./ARCHITECTURE.md) — How it works
-- 💻 [Contributing](./CONTRIBUTING.md) — For developers
 
 ## Features
 
