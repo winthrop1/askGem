@@ -1,6 +1,6 @@
-# gonk - Telegram AI Bot
+# askGem - AI-Powered Telegram Group Assistant
 
-A friendly Telegram bot powered by Google Gemini with Google Search grounding. Mention **@gonkted_bot** in any group chat and get search-backed answers.
+A friendly AI-powered Telegram bot that answers questions in group chats using Google Gemini with real-time web search grounding. Mention your bot in any group chat and get search-backed answers.
 
 ## Features
 
@@ -38,8 +38,8 @@ Use `/model` to cycle between them. If one model hits its rate limit, switch to 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/winthrop1/telegram-ai-bot.git
-cd telegram-ai-bot
+git clone https://github.com/winthrop1/askgem.git
+cd askgem
 ```
 
 ### 2. Create a virtual environment
@@ -98,13 +98,15 @@ python main.py
 
 ### In group chats
 
-Add @gonkted_bot to your Telegram group, then mention it with a question:
+Add the bot to your Telegram group, then mention it with a question:
 
 ```
-@gonkted_bot what's happening in tech news today?
-@gonkted_bot explain quantum computing
-@gonkted_bot who won the match last night?
+@your_bot_name what's happening in tech news today?
+@your_bot_name explain quantum computing
+@your_bot_name who won the match last night?
 ```
+
+(Replace `@your_bot_name` with your actual bot username from BotFather)
 
 ### Commands
 
@@ -119,7 +121,7 @@ Add @gonkted_bot to your Telegram group, then mention it with a question:
 ### 1. Push to GitHub
 
 ```bash
-git remote add origin https://github.com/YOUR_USERNAME/telegram-ai-bot.git
+git remote add origin https://github.com/YOUR_USERNAME/askgem.git
 git push -u origin main
 ```
 
@@ -152,7 +154,7 @@ Click **Create Web Service**. Render will build and start the bot automatically.
 ## Project Structure
 
 ```
-telegram-ai-bot/
+askgem/
 ├── main.py             # Main application
 ├── requirements.txt    # Dependencies
 ├── .env                # API keys (gitignored)

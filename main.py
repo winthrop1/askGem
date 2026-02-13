@@ -1,5 +1,5 @@
 """
-gonk - A Telegram AI bot powered by Google Gemini.
+askGem - AI-powered Telegram group assistant with Google Gemini.
 Responds to @mentions in group chats with search-grounded answers.
 Supports multiple Gemini models (cycle with /model).
 """
@@ -39,7 +39,7 @@ ALLOWED_CHAT_IDS: set[int] = {
     int(cid.strip()) for cid in _raw_ids.split(",") if cid.strip()
 }
 
-BOT_USERNAME = "@gonkted_bot"
+BOT_USERNAME: str = ""  # Auto-detected at startup
 GEMINI_MODELS = [
     "gemini-2.5-flash-lite",  # Fast, 1000 RPD free tier
     "gemini-2.5-flash",        # Balanced, 250 RPD free tier
@@ -79,9 +79,9 @@ gemini_client: genai.Client | None = None
 
 
 def get_system_prompt() -> str:
-    """Return the system prompt that defines gonk's personality."""
+    """Return the system prompt that defines the bot's personality."""
     return (
-        "You are gonk, a friendly and helpful AI assistant in a Telegram group chat.\n"
+        "You are a friendly and helpful AI assistant in a Telegram group chat.\n"
         "Guidelines:\n"
         "- Be casual and conversational, like chatting with a friend\n"
         "- Use occasional emojis (1-2 per response) to keep things friendly\n"
@@ -132,8 +132,10 @@ def query_gemini(prompt: str) -> str:
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /start command."""
+    # Use bot username without @ symbol
+    bot_name = BOT_USERNAME.lstrip('@') if BOT_USERNAME else 'your AI assistant'
     welcome = (
-        "Hey there! I'm gonk, your friendly AI assistant.\n\n"
+        f"Hey there! I'm {bot_name}, your friendly AI assistant.\n\n"
         "How to use me:\n"
         f"  Mention me in a group chat: {BOT_USERNAME} your question here\n\n"
         "I use Google Search to give you up-to-date info, and I remember "
@@ -253,6 +255,14 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.info("Model switched: %s → %s", old_model, new_model)
 
 
+async def post_init(application: Application) -> None:
+    """Auto-detect bot username at startup (clone-friendly)."""
+    global BOT_USERNAME
+    bot_info = await application.bot.get_me()
+    BOT_USERNAME = f"@{bot_info.username}"
+    logger.info("Bot username detected: %s", BOT_USERNAME)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -291,6 +301,9 @@ def main() -> None:
 
     # Build Telegram application
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # Auto-detect bot username at startup
+    application.post_init = post_init
 
     # Register handlers (commands first, then message handler)
     application.add_handler(CommandHandler("start", start_command))
