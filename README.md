@@ -2,6 +2,15 @@
 
 A friendly AI-powered Telegram bot that answers questions in group chats using Google Gemini with real-time web search grounding. Mention your bot in any group chat and get search-backed answers.
 
+**Status**: Ready for deployment ✅
+
+**Quick Links:**
+- ⚡ [Quick Start (5 min)](./QUICKSTART.md) — Get running in minutes
+- 🚀 [Deploy to Render (Free Tier)](./RENDER_DEPLOYMENT.md) — Production setup
+- 📖 [Local Setup](#local-setup) — Development mode
+- 🏗️ [Architecture](./ARCHITECTURE.md) — How it works
+- 💻 [Contributing](./CONTRIBUTING.md) — For developers
+
 ## Features
 
 - **Google Search grounding** — answers are backed by real-time web search
@@ -116,40 +125,26 @@ Add the bot to your Telegram group, then mention it with a question:
 | `/status` | Show current model                     |
 | `/model`  | Cycle to the next Gemini model         |
 
-## Deploy to Render.com
+## Deploy to Render (Free Tier)
 
-### 1. Push to GitHub
+askGem can run 24/7 on Render's free tier with no credit card required.
 
-```bash
-git remote add origin https://github.com/YOUR_USERNAME/askgem.git
-git push -u origin main
-```
+**Quick Start:**
+1. Push your code to GitHub (this repo)
+2. Go to [render.com](https://render.com) and sign in with GitHub
+3. Click **New** > **Web Service**, connect your repo
+4. Set environment variables: `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `ALLOWED_CHAT_IDS`
+5. Deploy and authorize your groups
 
-### 2. Create a Web Service on Render
+**Full Deployment Guide:**
+See [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md) for complete step-by-step instructions, troubleshooting, and maintenance tips.
 
-1. Go to [render.com](https://render.com) and sign in
-2. Click **New** > **Web Service**
-3. Connect your GitHub repo
-
-### 3. Configure the service
-
-| Setting           | Value                             |
-|-------------------|-----------------------------------|
-| **Environment**   | Python                            |
-| **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `python main.py`                   |
-
-### 4. Add environment variables
-
-In the Render dashboard, add:
-
-- `TELEGRAM_BOT_TOKEN` — your Telegram bot token
-- `GEMINI_API_KEY` — your Google Gemini API key
-- `ALLOWED_CHAT_IDS` — (optional) comma-separated group chat IDs
-
-### 5. Deploy
-
-Click **Create Web Service**. Render will build and start the bot automatically.
+**Key Features:**
+- ✅ Free tier (24/7 uptime, auto-restart)
+- ✅ Auto-deploy on git push
+- ✅ Easy environment variable management
+- ✅ Built-in health checks
+- ✅ Custom domain support (optional)
 
 ## Project Structure
 
