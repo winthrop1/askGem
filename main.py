@@ -33,7 +33,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Chat allowlist — comma-separated chat IDs in .env, empty = allow all
+# Chat allowlist — comma-separated chat IDs in .env, empty = reject all (secure-by-default)
 _raw_ids = os.getenv("ALLOWED_CHAT_IDS", "")
 ALLOWED_CHAT_IDS: set[int] = {
     int(cid.strip()) for cid in _raw_ids.split(",") if cid.strip()
@@ -173,8 +173,16 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = message.chat_id
     logger.info("Bot mentioned in chat %d", chat_id)
 
-    # Allowlist check (empty = allow all)
-    if ALLOWED_CHAT_IDS and chat_id not in ALLOWED_CHAT_IDS:
+    # Allowlist check (empty = reject all, secure-by-default)
+    if not ALLOWED_CHAT_IDS:
+        logger.warning(
+            "Chat %d blocked: ALLOWED_CHAT_IDS is empty (secure-by-default). "
+            "Add chat IDs to .env to enable bot access.",
+            chat_id
+        )
+        return
+
+    if chat_id not in ALLOWED_CHAT_IDS:
         logger.info("Chat %d not in allowlist, ignoring", chat_id)
         return
 
@@ -261,6 +269,21 @@ def main() -> None:
     if not GEMINI_API_KEY or GEMINI_API_KEY.startswith("paste_"):
         logger.error("GEMINI_API_KEY is missing or not configured in .env")
         return
+
+    # Validate and warn about access control configuration
+    if not ALLOWED_CHAT_IDS:
+        logger.warning(
+            "⚠️  SECURITY WARNING: ALLOWED_CHAT_IDS is empty.\n"
+            "    Bot will REJECT all group chats (secure-by-default).\n"
+            "    To enable, add chat IDs to .env:\n"
+            "      ALLOWED_CHAT_IDS=-1001234567890,-1009876543210\n"
+            "    Find chat IDs in logs when bot is mentioned in a group."
+        )
+    else:
+        logger.info(
+            "✅ Access control enabled. Allowed chats: %s",
+            ", ".join(str(cid) for cid in ALLOWED_CHAT_IDS)
+        )
 
     # Initialise Gemini client
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
