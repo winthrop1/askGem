@@ -10,6 +10,19 @@ A friendly Telegram bot powered by Google Gemini with Google Search grounding. M
 - **Chat allowlist** — restrict bot to specific groups via `ALLOWED_CHAT_IDS`
 - **Group-only** — responds to @mentions in groups, ignores DMs
 
+## Security Model
+
+**Secure-by-default:** The bot rejects all groups unless explicitly authorized via `ALLOWED_CHAT_IDS` in `.env`. This is a private-use bot designed for specific groups only.
+
+To authorize a group:
+1. Add the bot to your Telegram group
+2. Mention the bot (it will be rejected with a logged chat ID)
+3. Add the chat ID to `.env`:
+   ```
+   ALLOWED_CHAT_IDS=-1001234567890,-1009876543210
+   ```
+4. Restart the bot
+
 ## Available Models
 
 | Model | Speed | Free Tier Limit |
@@ -25,8 +38,8 @@ Use `/model` to cycle between them. If one model hits its rate limit, switch to 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/winthrop1/Telegram-AI-chatbot.git
-cd Telegram-AI-chatbot
+git clone https://github.com/winthrop1/telegram-ai-bot.git
+cd telegram-ai-bot
 ```
 
 ### 2. Create a virtual environment
@@ -69,12 +82,16 @@ GEMINI_API_KEY=your_actual_key
 ALLOWED_CHAT_IDS=
 ```
 
-`ALLOWED_CHAT_IDS` is optional. Leave empty to allow all groups. To restrict, add comma-separated chat IDs (e.g., `-1001234567890,-1009876543210`). You can find your group's chat ID in the bot logs when it receives a mention.
+`ALLOWED_CHAT_IDS` controls which groups can use the bot (secure-by-default):
+- **Empty (default):** Bot REJECTS all groups (recommended for private use)
+- **With chat IDs:** Only allows specified groups (e.g., `-1001234567890,-1009876543210`)
+
+To find your group's chat ID: Add the bot to a group, mention it, and check the logs for "Chat <ID> blocked" message.
 
 ### 6. Run the bot
 
 ```bash
-python bot.py
+python main.py
 ```
 
 ## Usage
@@ -118,7 +135,7 @@ git push -u origin main
 |-------------------|-----------------------------------|
 | **Environment**   | Python                            |
 | **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `python bot.py`                   |
+| **Start Command** | `python main.py`                   |
 
 ### 4. Add environment variables
 
@@ -136,7 +153,7 @@ Click **Create Web Service**. Render will build and start the bot automatically.
 
 ```
 telegram-ai-bot/
-├── bot.py              # Main application
+├── main.py             # Main application
 ├── requirements.txt    # Dependencies
 ├── .env                # API keys (gitignored)
 ├── .env.example        # Template for .env
