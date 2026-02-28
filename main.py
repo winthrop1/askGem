@@ -181,7 +181,7 @@ def fetch_news() -> list[dict]:
                 "apikey": NEWSDATA_API_KEY,
                 "category": "business",
                 "language": "en",
-                "size": 5,
+                "size": 10,
             },
             timeout=10,
         )
@@ -193,7 +193,7 @@ def fetch_news() -> list[dict]:
                 "source": a.get("source_id", ""),
                 "link": a.get("link", ""),
             }
-            for a in articles[:5]
+            for a in articles[:10]
             if a.get("title")
         ]
     except Exception as e:
