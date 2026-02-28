@@ -126,9 +126,11 @@ def fetch_stooq_indices() -> dict[str, dict | None]:
     start = end - datetime.timedelta(days=10)  # Buffer covers weekends + holidays
     results: dict[str, dict | None] = {}
 
+    logger.info("Fetching Stooq indices for %s to %s", start, end)
     for name, ticker in STOOQ_INDICES.items():
         try:
             df = pdr.get_data_stooq(ticker, start=start, end=end)
+            logger.info("Stooq %s (%s): %d rows", name, ticker, 0 if df is None else len(df))
             if df is None or df.empty or len(df) < 2:
                 logger.warning("Insufficient data for %s (%s)", name, ticker)
                 results[name] = None
@@ -196,7 +198,11 @@ def fetch_news() -> list[dict]:
         r.raise_for_status()
         articles = r.json().get("results", [])
         return [
-            {"title": a.get("title", ""), "source": a.get("source_id", "")}
+            {
+                "title": a.get("title", ""),
+                "source": a.get("source_id", ""),
+                "link": a.get("link", ""),
+            }
             for a in articles[:5]
             if a.get("title")
         ]
@@ -221,12 +227,14 @@ def generate_market_narrative(
     for name, data in crypto.items():
         data_lines.append(f"{name}: ${data['price']:,.2f} ({data['change_pct']:+.2f}%)")
 
-    news_lines = [f"- {a['title']}" for a in news[:3]]
+    news_lines = [f"- {a['title']} ({a.get('link', 'no link')})" for a in news[:3]]
 
     prompt = (
         "You are a concise financial analyst. Based on the following market data, "
         "write exactly 2–3 sentences summarising the overall market mood and key themes. "
-        "Be direct and insightful. Do not repeat the raw numbers verbatim.\n\n"
+        "Be direct and insightful. Do not repeat the raw numbers verbatim. "
+        "Reference relevant headlines by linking to them in HTML format "
+        '(e.g. <a href="URL">short description</a>).\n\n'
         "Market data:\n" + "\n".join(data_lines)
         + ("\n\nTop headlines:\n" + "\n".join(news_lines) if news_lines else "")
     )
@@ -296,13 +304,30 @@ def format_market_message(
     if news:
         parts.append("📰 <b>Top Business Headlines</b>")
         for i, article in enumerate(news, 1):
-            parts.append(f"  {i}. {html.escape(article['title'])}")
+            title = html.escape(article["title"])
+            link = article.get("link", "")
+            if link:
+                parts.append(f'  {i}. <a href="{html.escape(link)}">{title}</a>')
+            else:
+                parts.append(f"  {i}. {title}")
         parts.append("")
 
-    # Gemini commentary
+    # Gemini commentary (allow <a href="..."> links, escape everything else)
     if narrative:
         parts.append("💬 <b>Market Commentary</b>")
-        parts.append(html.escape(narrative))
+        # Preserve <a href="...">...</a> tags from Gemini, escape the rest
+        _link_re = re.compile(r'<a\s+href="(https?://[^"]+)">(.*?)</a>')
+        _placeholders: list[str] = []
+
+        def _stash_link(m: re.Match) -> str:
+            _placeholders.append(m.group(0))
+            return f"\x00LINK{len(_placeholders) - 1}\x00"
+
+        safe = _link_re.sub(_stash_link, narrative)
+        safe = html.escape(safe)
+        for i, link_html in enumerate(_placeholders):
+            safe = safe.replace(f"\x00LINK{i}\x00", link_html)
+        parts.append(safe)
 
     return "\n".join(parts)
 
