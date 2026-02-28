@@ -240,9 +240,8 @@ def generate_market_narrative(
     )
 
     try:
-        model = GEMINI_MODELS[current_model_index]
         response = gemini_client.models.generate_content(
-            model=model,
+            model="gemini-2.5-pro",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.5,
