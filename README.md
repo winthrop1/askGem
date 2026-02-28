@@ -1,6 +1,6 @@
 # askGem - AI-Powered Telegram Group Assistant
 
-A friendly AI-powered Telegram bot that answers questions in group chats using Google Gemini with real-time web search grounding. Mention your bot in any group chat and get search-backed answers.
+A friendly AI-powered Telegram bot that answers questions in group chats using Google Gemini with real-time web search grounding. Mention your bot in any group chat and get search-backed answers. Also delivers daily market summaries covering global indices, crypto prices, top business headlines, and AI-generated commentary.
 
 **Status**: Ready for deployment ✅
 
@@ -14,6 +14,7 @@ A friendly AI-powered Telegram bot that answers questions in group chats using G
 - **Google Search grounding** — answers are backed by real-time web search
 - **Conversation memory** — remembers the last 5 messages for context
 - **Multi-model support** — cycle between 3 Gemini models with `/model`
+- **Daily market summaries** — global indices, crypto, top headlines, AI commentary via `/marketsummary` or scheduled daily post
 - **Chat allowlist** — restrict bot to specific groups via `ALLOWED_CHAT_IDS`
 - **Group-only** — responds to @mentions in groups, ignores DMs
 
@@ -75,18 +76,30 @@ pip install -r requirements.txt
 2. Create an API key
 3. Copy the key
 
+**Optional — Market Summary API keys:**
+- **CoinGecko API key** (free at [coingecko.com/api](https://www.coingecko.com/en/api)) — improves crypto rate limits; works without a key
+- **Newsdata.io API key** (free at [newsdata.io](https://newsdata.io/)) — required for business headlines section
+
 ### 5. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and replace the placeholder values with your actual keys:
+Edit `.env` with your keys:
 
 ```
 TELEGRAM_BOT_TOKEN=your_actual_token
 GEMINI_API_KEY=your_actual_key
 ALLOWED_CHAT_IDS=
+
+# Optional — market summary
+COINGECKO_API_KEY=
+NEWSDATA_API_KEY=
+MARKET_SUMMARY_HOUR=8
+MARKET_SUMMARY_MINUTE=0
+MARKET_SUMMARY_TIMEZONE=UTC
+MARKET_SUMMARY_CHAT_IDS=
 ```
 
 `ALLOWED_CHAT_IDS` controls which groups can use the bot (secure-by-default):
@@ -94,6 +107,8 @@ ALLOWED_CHAT_IDS=
 - **With chat IDs:** Only allows specified groups (e.g., `-1001234567890,-1009876543210`)
 
 To find your group's chat ID: Add the bot to a group, mention it, and check the logs for "Chat <ID> blocked" message.
+
+`MARKET_SUMMARY_HOUR=-1` disables the scheduled daily post (manual `/marketsummary` still works).
 
 ### 6. Run the bot
 
@@ -117,11 +132,12 @@ Add the bot to your Telegram group, then mention it with a question:
 
 ### Commands
 
-| Command  | Description                            |
-|----------|----------------------------------------|
-| `/start`  | Welcome message and usage guide        |
-| `/status` | Show current model                     |
-| `/model`  | Cycle to the next Gemini model         |
+| Command          | Description                                        |
+|------------------|----------------------------------------------------|
+| `/start`         | Welcome message and usage guide                    |
+| `/status`        | Show current model                                 |
+| `/model`         | Cycle to the next Gemini model (affects @mentions) |
+| `/marketsummary` | On-demand market summary (indices, crypto, news)   |
 
 ## Deploy to Render (Free Tier)
 
@@ -160,6 +176,7 @@ askgem/
 
 ## Tech Stack
 
-- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) v21 — async Telegram Bot API
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) v21 — async Telegram Bot API + APScheduler job queue
 - [Google GenAI SDK](https://github.com/googleapis/python-genai) — Gemini models with search grounding
+- [yfinance](https://github.com/ranaroussi/yfinance) — global index data via Yahoo Finance
 - [python-dotenv](https://github.com/theskumar/python-dotenv) — environment variable management

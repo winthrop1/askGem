@@ -115,24 +115,31 @@ gemini_client: genai.Client | None = None
 
 
 def fetch_indices() -> dict[str, dict | None]:
-    """Fetch previous close and % change for all indices via Yahoo Finance (yfinance)."""
+    """Fetch previous close and % change for all indices via Yahoo Finance (batch download)."""
     import yfinance as yf
 
+    symbols = list(INDICES.values())
     results: dict[str, dict | None] = {}
+    try:
+        data = yf.download(symbols, period="5d", progress=False, group_by="ticker", auto_adjust=True)
+    except Exception as e:
+        logger.warning("Failed to download index data: %s", e)
+        return {name: None for name in INDICES}
+
     for name, ticker in INDICES.items():
         try:
-            hist = yf.Ticker(ticker).history(period="5d")
-            if hist is None or len(hist) < 2:
-                logger.warning("Insufficient data for %s (%s): %d rows", name, ticker, 0 if hist is None else len(hist))
+            closes = data[ticker]["Close"].dropna()
+            if len(closes) < 2:
+                logger.warning("Insufficient data for %s (%s): %d rows", name, ticker, len(closes))
                 results[name] = None
                 continue
-            latest_close = float(hist["Close"].iloc[-1])
-            prev_close = float(hist["Close"].iloc[-2])
+            latest_close = float(closes.iloc[-1])
+            prev_close = float(closes.iloc[-2])
             pct_change = ((latest_close - prev_close) / prev_close) * 100
             results[name] = {"close": latest_close, "change_pct": pct_change}
             logger.info("Fetched %s: %.2f (%+.2f%%)", name, latest_close, pct_change)
         except Exception as e:
-            logger.warning("Failed to fetch %s (%s): %s", name, ticker, e)
+            logger.warning("Failed to parse %s (%s): %s", name, ticker, e)
             results[name] = None
 
     return results
