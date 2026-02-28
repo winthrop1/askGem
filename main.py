@@ -65,18 +65,18 @@ MARKET_SUMMARY_CHAT_IDS: set[int] = {
     int(cid.strip()) for cid in _raw_summary_ids.split(",") if cid.strip()
 }
 
-# Stooq tickers for each index (confirmed working via pandas-datareader)
-STOOQ_INDICES: dict[str, str] = {
-    "S&P 500":     "^SPX",
-    "NASDAQ":      "^NDQ",
+# Yahoo Finance tickers for each index (via yfinance)
+INDICES: dict[str, str] = {
+    "S&P 500":     "^GSPC",
+    "NASDAQ":      "^IXIC",
     "Dow Jones":   "^DJI",
-    "FTSE 100":    "^UK100",
-    "DAX":         "^DAX",
-    "CAC 40":      "^CAC",
-    "Nikkei 225":  "^NKX",
+    "FTSE 100":    "^FTSE",
+    "DAX":         "^GDAXI",
+    "CAC 40":      "^FCHI",
+    "Nikkei 225":  "^N225",
     "Hang Seng":   "^HSI",
     "STI":         "^STI",
-    "SSE":         "^SHC",
+    "SSE":         "000001.SS",
 }
 
 # Regional groupings for display
@@ -114,30 +114,20 @@ gemini_client: genai.Client | None = None
 # ---------------------------------------------------------------------------
 
 
-def fetch_stooq_indices() -> dict[str, dict | None]:
-    """Fetch previous-day closing prices and % change for all indices via Stooq."""
-    try:
-        import pandas_datareader as pdr
-    except ImportError:
-        logger.error("pandas-datareader is not installed. Run: pip install pandas-datareader lxml")
-        return {name: None for name in STOOQ_INDICES}
+def fetch_indices() -> dict[str, dict | None]:
+    """Fetch previous close and % change for all indices via Yahoo Finance (yfinance)."""
+    import yfinance as yf
 
-    end = datetime.date.today()
-    start = end - datetime.timedelta(days=10)  # Buffer covers weekends + holidays
     results: dict[str, dict | None] = {}
-
-    logger.info("Fetching Stooq indices for %s to %s", start, end)
-    for name, ticker in STOOQ_INDICES.items():
+    for name, ticker in INDICES.items():
         try:
-            df = pdr.get_data_stooq(ticker, start=start, end=end)
-            logger.info("Stooq %s (%s): %d rows", name, ticker, 0 if df is None else len(df))
-            if df is None or df.empty or len(df) < 2:
-                logger.warning("Insufficient data for %s (%s)", name, ticker)
+            hist = yf.Ticker(ticker).history(period="5d")
+            if hist is None or len(hist) < 2:
+                logger.warning("Insufficient data for %s (%s): %d rows", name, ticker, 0 if hist is None else len(hist))
                 results[name] = None
                 continue
-            df = df.sort_index()
-            latest_close = float(df["Close"].iloc[-1])
-            prev_close = float(df["Close"].iloc[-2])
+            latest_close = float(hist["Close"].iloc[-1])
+            prev_close = float(hist["Close"].iloc[-2])
             pct_change = ((latest_close - prev_close) / prev_close) * 100
             results[name] = {"close": latest_close, "change_pct": pct_change}
             logger.info("Fetched %s: %.2f (%+.2f%%)", name, latest_close, pct_change)
@@ -339,7 +329,7 @@ def format_market_message(
 async def _collect_market_data() -> tuple[dict, dict, list, str]:
     """Fetch all market data concurrently and generate narrative. Returns (indices, crypto, news, narrative)."""
     indices, crypto, news = await asyncio.gather(
-        asyncio.to_thread(fetch_stooq_indices),
+        asyncio.to_thread(fetch_indices),
         asyncio.to_thread(fetch_crypto),
         asyncio.to_thread(fetch_news),
     )

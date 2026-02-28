@@ -2,7 +2,6 @@ python-telegram-bot[job-queue]==21.11.1
 APScheduler==3.10.4
 google-genai==1.0.0
 python-dotenv==1.0.1
-pandas-datareader==0.10.0
+yfinance==1.2.0
 pandas==3.0.1
 requests==2.32.5
-lxml==6.0.2
