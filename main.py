@@ -330,7 +330,15 @@ async def market_summary_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     chat_id = message.chat_id
-    if ALLOWED_CHAT_IDS and chat_id not in ALLOWED_CHAT_IDS:
+    # Allowlist check (empty = reject all, secure-by-default)
+    if not ALLOWED_CHAT_IDS:
+        logger.warning(
+            "Chat %d blocked: ALLOWED_CHAT_IDS is empty (secure-by-default). "
+            "Add chat IDs to .env to enable bot access.",
+            chat_id,
+        )
+        return
+    if chat_id not in ALLOWED_CHAT_IDS:
         logger.info("Chat %d not in allowlist, ignoring /marketsummary", chat_id)
         return
 
