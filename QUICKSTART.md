@@ -6,7 +6,7 @@ Get askGem running in 5 minutes. Choose your path:
 
 **Total time: 10 minutes**
 
-**Note:** Render's free tier spins down after 15 minutes of inactivity. The bot automatically resumes when someone mentions it in a group (slight delay). For persistent 24/7 uptime, upgrade to a paid plan.
+**Note:** On Render's free tier the service spins down after 15 minutes without traffic. In webhook mode the next mention wakes it, with a ~1 minute cold start on that first message. For instant replies around the clock, use a paid always-on instance.
 
 ### 1. Get tokens (2 minutes)
 
@@ -21,6 +21,9 @@ Get askGem running in 5 minutes. Choose your path:
 - Click **Create API Key**
 - Copy the key
 
+**Your Telegram user ID:**
+- Message [@userinfobot](https://t.me/userinfobot); it replies with your numeric ID
+
 ### 2. Deploy to Render (5 minutes)
 
 1. Go to https://render.com, sign in with GitHub
@@ -32,21 +35,22 @@ Get askGem running in 5 minutes. Choose your path:
    - **Environment**: Add variables:
      - `TELEGRAM_BOT_TOKEN` = your token
      - `GEMINI_API_KEY` = your key
-     - `ALLOWED_CHAT_IDS` = (leave blank for now)
+     - `OWNER_ID` = your numeric Telegram user ID
+     - `WEBHOOK_URL` = `https://<your-service>.onrender.com` (add after the URL is assigned)
+     - `WEBHOOK_SECRET` = output of `openssl rand -hex 32`
 5. Click **Create Web Service**
-6. Wait 2-3 minutes for "Live" status
+6. Wait 2-3 minutes for "Live" status; if you added `WEBHOOK_URL` after the first
+   deploy, save it and let Render redeploy
 
-### 3. Test it (3 minutes)
+### 3. Test it (2 minutes)
 
 1. Open Telegram
-2. Add your bot to a group
-3. Mention it: `@your_bot_name test`
-4. Check Render logs for chat ID (message like `Chat -1001234567890 blocked`)
-5. Add chat ID to `ALLOWED_CHAT_IDS` in Render Environment Variables
-6. Render auto-redeploys
-7. Try: `@your_bot_name what's the weather?` ✅
+2. Add your bot to a group **you** are in
+3. Try: `@your_bot_name what's the weather?` ✅
 
-**✅ Done!** Bot runs 24/7 on free tier.
+(If the bot leaves the group immediately, whoever added it wasn't the `OWNER_ID` account — check the logs.)
+
+**✅ Done!**
 
 ---
 
@@ -74,10 +78,11 @@ Edit `.env`:
 ```
 TELEGRAM_BOT_TOKEN=your_bot_token
 GEMINI_API_KEY=your_gemini_key
-ALLOWED_CHAT_IDS=
+OWNER_ID=your_numeric_telegram_user_id
 ```
 
-Get tokens from [Option A](#option-a-deploy-to-render-recommended-for-always-on-bot) above.
+Leave `WEBHOOK_URL` unset locally — the bot then runs in long-polling mode.
+Get tokens from [Option A](#option-a-deploy-to-render-recommended-for-continuous-deployment) above.
 
 ### 3. Run (1 minute)
 
@@ -88,19 +93,17 @@ python main.py
 You should see:
 ```
 Bot username detected: @your_bot_name
-Bot started. Polling...
+Bot started in polling mode (WEBHOOK_URL not set)
 ```
 
 ### 4. Test (1 minute)
 
-In Telegram group:
+Add the bot to a group you are in, then:
 ```
 @your_bot_name what's happening in AI today?
 ```
 
-Check console logs for chat ID, add to `.env`, restart, and test again.
-
-**Note**: Bot stops when you close the terminal. Use Option A (Render) for 24/7.
+**Note**: Bot stops when you close the terminal. Use Option A (Render) for hosting.
 
 ---
 
@@ -117,9 +120,10 @@ Check console logs for chat ID, add to `.env`, restart, and test again.
 
 ### Bot doesn't respond
 
-1. **Is it in ALLOWED_CHAT_IDS?** If empty, bot blocks all groups. Add your chat ID.
+1. **Did it auto-leave the group?** It leaves any group not added by the `OWNER_ID` account. Check logs for `Leaving unauthorized group`.
 2. **Did you mention correctly?** Try: `@your_bot_name hello`
-3. **Check logs for errors** — especially API key issues
+3. **On Render:** the first mention after 15 min idle takes ~1 minute to wake.
+4. **Check logs for errors** — especially API key issues
 
 ### API Key errors
 
@@ -138,11 +142,11 @@ Check console logs for chat ID, add to `.env`, restart, and test again.
 
 | Issue | Solution |
 |-------|----------|
-| "Chat blocked" message | Add chat ID to `ALLOWED_CHAT_IDS` |
+| Bot leaves the group immediately | Whoever added it wasn't the `OWNER_ID` account |
+| `OWNER_ID is missing` | Set `OWNER_ID` env var to your numeric Telegram user ID |
 | "Invalid token" | Copy token exactly from BotFather (no spaces) |
 | "API error" | Check Gemini free tier limit (60 RPM flash-lite) — use `/model` to switch |
-| Bot not in groups | Re-add bot to group after BotFather Group Privacy change |
-| Port already in use | Change `PORT` in Render Environment Variables |
+| Logs say `polling mode` on Render | Set `WEBHOOK_URL` on the service |
 
 ---
 
@@ -151,8 +155,8 @@ Check console logs for chat ID, add to `.env`, restart, and test again.
 ✅ Real-time web search with Gemini
 ✅ Conversation memory (last 5 messages)
 ✅ 3 Gemini models (switch with `/model`)
-✅ Secure by default (allowlist-based)
-✅ Free hosting on Render
+✅ Owner-only (auto-leaves groups you didn't add it to)
+✅ Free hosting on Render (webhook mode)
 
 ---
 

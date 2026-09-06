@@ -1,6 +1,6 @@
 # askGem - AI-Powered Telegram Group Assistant
 
-A friendly AI-powered Telegram bot that answers questions in group chats using Google Gemini with real-time web search grounding. Mention your bot in any group chat and get search-backed answers. Also delivers daily market summaries covering global indices, crypto prices, top business headlines, and AI-generated commentary.
+A friendly AI-powered Telegram bot that answers questions in group chats using Google Gemini with real-time web search grounding. Mention your bot in any group chat and get search-backed answers. It also produces an on-demand market summary covering global indices, crypto prices, top business headlines, and AI-generated commentary.
 
 **Status**: Ready for deployment ✅
 
@@ -14,22 +14,17 @@ A friendly AI-powered Telegram bot that answers questions in group chats using G
 - **Google Search grounding** — answers are backed by real-time web search
 - **Conversation memory** — remembers the last 5 messages for context
 - **Multi-model support** — cycle between 3 Gemini models with `/model`
-- **Daily market summaries** — global indices, crypto, top headlines, AI commentary via `/marketsummary` or scheduled daily post
-- **Chat allowlist** — restrict bot to specific groups via `ALLOWED_CHAT_IDS`
+- **On-demand market summary** — global indices, crypto, top headlines, AI commentary via `/marketsummary`
+- **Owner-only** — the bot auto-leaves any group it was not added to by you
 - **Group-only** — responds to @mentions in groups, ignores DMs
 
 ## Security Model
 
-**Secure-by-default:** The bot rejects all groups unless explicitly authorized via `ALLOWED_CHAT_IDS` in `.env`. This is a private-use bot designed for specific groups only.
+**Owner-only:** set `OWNER_ID` to your numeric Telegram user ID (get it from [@userinfobot](https://t.me/userinfobot)). Whenever the bot is added to a group, it checks who added it — if that isn't you, it **leaves immediately**. There is no per-group config and no redeploy needed to authorize a group: just add the bot to your own groups.
 
-To authorize a group:
-1. Add the bot to your Telegram group
-2. Mention the bot (it will be rejected with a logged chat ID)
-3. Add the chat ID to `.env`:
-   ```
-   ALLOWED_CHAT_IDS=-1001234567890,-1009876543210
-   ```
-4. Restart the bot
+Notes:
+- The check fires on the "added to group" event. If a stranger added the bot under an older build, remove it from that group manually once (Telegram gives bots no way to list their own chats).
+- To let a trusted friend add the bot too, the code accepts a single `OWNER_ID`; extend `should_leave_chat` if you need multiple owners.
 
 ## Available Models
 
@@ -91,24 +86,14 @@ Edit `.env` with your keys:
 ```
 TELEGRAM_BOT_TOKEN=your_actual_token
 GEMINI_API_KEY=your_actual_key
-ALLOWED_CHAT_IDS=
+OWNER_ID=your_numeric_telegram_user_id
 
 # Optional — market summary
 COINGECKO_API_KEY=
 NEWSDATA_API_KEY=
-MARKET_SUMMARY_HOUR=8
-MARKET_SUMMARY_MINUTE=0
-MARKET_SUMMARY_TIMEZONE=UTC
-MARKET_SUMMARY_CHAT_IDS=
 ```
 
-`ALLOWED_CHAT_IDS` controls which groups can use the bot (secure-by-default):
-- **Empty (default):** Bot REJECTS all groups (recommended for private use)
-- **With chat IDs:** Only allows specified groups (e.g., `-1001234567890,-1009876543210`)
-
-To find your group's chat ID: Add the bot to a group, mention it, and check the logs for "Chat <ID> blocked" message.
-
-`MARKET_SUMMARY_HOUR=-1` disables the scheduled daily post (manual `/marketsummary` still works).
+Get your `OWNER_ID` by messaging [@userinfobot](https://t.me/userinfobot). Leave `WEBHOOK_URL` / `WEBHOOK_SECRET` unset for local use — the bot runs in long-polling mode when `WEBHOOK_URL` is empty.
 
 ### 6. Run the bot
 
@@ -141,26 +126,19 @@ Add the bot to your Telegram group, then mention it with a question:
 
 ## Deploy to Render (Free Tier)
 
-askGem can run 24/7 on Render's free tier with no credit card required.
+askGem runs on Render's free **Web Service** tier (no credit card required) in **webhook mode**.
 
 **Quick Start:**
 1. Push your code to GitHub (this repo)
 2. Go to [render.com](https://render.com) and sign in with GitHub
 3. Click **New** > **Web Service**, connect your repo
-4. Set environment variables: `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `ALLOWED_CHAT_IDS`
-5. Deploy and authorize your groups
+4. Set environment variables: `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `OWNER_ID`, `WEBHOOK_URL` (the service's own `https://…onrender.com` URL), `WEBHOOK_SECRET` (`openssl rand -hex 32`)
+5. Deploy, then add the bot to your groups
 
 **Full Deployment Guide:**
 See [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md) for complete step-by-step instructions, troubleshooting, and maintenance tips.
 
-**Key Features:**
-- ✅ Free tier (auto-restart, easy setup)
-- ✅ Auto-deploy on git push
-- ✅ Easy environment variable management
-- ✅ Built-in health checks
-- ✅ Custom domain support (optional)
-
-**Note:** Free tier services spin down after 15 minutes of inactivity (good for active groups, respins on first message)
+**Free-tier behaviour:** the service spins down after 15 minutes with no inbound traffic. The next mention's Telegram webhook POST wakes it, with a ~1 minute cold start on that first message (Telegram retries during the wake-up, so it is delivered). Webhook mode also avoids the `getUpdates` 409 conflicts that polling hit on overlapping deploys.
 
 ## Project Structure
 
@@ -168,15 +146,17 @@ See [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md) for complete step-by-step ins
 askgem/
 ├── main.py             # Main application
 ├── requirements.txt    # Dependencies
+├── .python-version     # Python version (Render + pyenv)
 ├── .env                # API keys (gitignored)
 ├── .env.example        # Template for .env
+├── tests/              # Unit tests (pytest)
 ├── .gitignore          # Git ignore rules
 └── README.md           # This file
 ```
 
 ## Tech Stack
 
-- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) v21 — async Telegram Bot API + APScheduler job queue
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) v21 — async Telegram Bot API (webhook mode via the `[webhooks]` extra)
 - [Google GenAI SDK](https://github.com/googleapis/python-genai) — Gemini models with search grounding
 - [yfinance](https://github.com/ranaroussi/yfinance) — global index data via Yahoo Finance
 - [python-dotenv](https://github.com/theskumar/python-dotenv) — environment variable management

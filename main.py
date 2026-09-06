@@ -2,7 +2,11 @@
 askGem - AI-powered Telegram group assistant with Google Gemini.
 Responds to @mentions in group chats with search-grounded answers.
 Supports multiple Gemini models (cycle with /model).
-Daily market summary via /marketsummary or scheduled job.
+On-demand market summary via /marketsummary.
+
+Runs in webhook mode when WEBHOOK_URL is set (production on Render),
+otherwise falls back to long polling (local development).
+Access control: the bot auto-leaves any group it was not added to by OWNER_ID.
 """
 
 import asyncio
@@ -11,19 +15,17 @@ import html
 import logging
 import os
 import re
-import threading
 from collections import deque
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from zoneinfo import ZoneInfo
 
 import requests
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from telegram import Update
+from telegram import ChatMember, Update
 from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
+    ChatMemberHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -39,11 +41,9 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Chat allowlist — comma-separated chat IDs in .env, empty = reject all (secure-by-default)
-_raw_ids = os.getenv("ALLOWED_CHAT_IDS", "")
-ALLOWED_CHAT_IDS: set[int] = {
-    int(cid.strip()) for cid in _raw_ids.split(",") if cid.strip()
-}
+# Access control — numeric Telegram user ID of the bot owner (get it from @userinfobot).
+# The bot auto-leaves any group it was not added to by this user.
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
 BOT_USERNAME: str = ""  # Auto-detected at startup
 GEMINI_MODELS = [
@@ -54,16 +54,9 @@ GEMINI_MODELS = [
 TEMPERATURE = 0.3
 MAX_OUTPUT_TOKENS = 500
 
-# Market summary config
+# Market summary config (on-demand via /marketsummary)
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 NEWSDATA_API_KEY = os.getenv("NEWSDATA_API_KEY", "")
-MARKET_SUMMARY_HOUR = int(os.getenv("MARKET_SUMMARY_HOUR", "8"))
-MARKET_SUMMARY_MINUTE = int(os.getenv("MARKET_SUMMARY_MINUTE", "0"))
-MARKET_SUMMARY_TIMEZONE = os.getenv("MARKET_SUMMARY_TIMEZONE", "UTC")
-_raw_summary_ids = os.getenv("MARKET_SUMMARY_CHAT_IDS", "")
-MARKET_SUMMARY_CHAT_IDS: set[int] = {
-    int(cid.strip()) for cid in _raw_summary_ids.split(",") if cid.strip()
-}
 
 # Yahoo Finance tickers for each index (via yfinance)
 INDICES: dict[str, str] = {
@@ -329,7 +322,7 @@ def format_market_message(
 
 
 # ---------------------------------------------------------------------------
-# Market summary command and scheduled job
+# Market summary command
 # ---------------------------------------------------------------------------
 
 
@@ -350,19 +343,6 @@ async def market_summary_command(update: Update, context: ContextTypes.DEFAULT_T
     if not message:
         return
 
-    chat_id = message.chat_id
-    # Allowlist check (empty = reject all, secure-by-default)
-    if not ALLOWED_CHAT_IDS:
-        logger.warning(
-            "Chat %d blocked: ALLOWED_CHAT_IDS is empty (secure-by-default). "
-            "Add chat IDs to .env to enable bot access.",
-            chat_id,
-        )
-        return
-    if chat_id not in ALLOWED_CHAT_IDS:
-        logger.info("Chat %d not in allowlist, ignoring /marketsummary", chat_id)
-        return
-
     status_msg = await message.reply_text("📊 Fetching market data, please wait…")
     try:
         indices, crypto, news, narrative = await _collect_market_data()
@@ -374,31 +354,71 @@ async def market_summary_command(update: Update, context: ContextTypes.DEFAULT_T
         await status_msg.edit_text("❌ Failed to fetch market summary. Please try again later.")
 
 
-async def send_daily_market_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Job callback: send the daily market summary to configured chats."""
-    chat_ids = MARKET_SUMMARY_CHAT_IDS or ALLOWED_CHAT_IDS
-    if not chat_ids:
-        logger.warning("No chat IDs configured for daily market summary")
-        return
-
-    logger.info("Running daily market summary job for %d chat(s)", len(chat_ids))
-    try:
-        indices, crypto, news, narrative = await _collect_market_data()
-        summary = format_market_message(indices, crypto, news, narrative)
-
-        for chat_id in chat_ids:
-            try:
-                await context.bot.send_message(chat_id=chat_id, text=summary, parse_mode="HTML")
-                logger.info("Sent daily market summary to chat %d", chat_id)
-            except Exception as e:
-                logger.error("Failed to send market summary to chat %d: %s", chat_id, e)
-    except Exception as e:
-        logger.error("Error in daily market summary job: %s", e, exc_info=True)
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
+
+
+def resolve_run_mode(
+    webhook_url: str | None,
+    webhook_secret: str | None,
+    port: str | None,
+) -> dict:
+    """Decide polling vs webhook from env values. Pure — no side effects.
+
+    Returns {"mode": "polling"} when WEBHOOK_URL is unset, otherwise a dict of
+    keyword arguments for Application.run_webhook. Raises ValueError on a
+    malformed WEBHOOK_URL / WEBHOOK_SECRET so a bad deploy fails loudly.
+    """
+    url = (webhook_url or "").rstrip("/")
+    if not url:
+        return {"mode": "polling"}
+    if not url.startswith("https://"):
+        raise ValueError(
+            "WEBHOOK_URL must start with https:// (Telegram only accepts HTTPS webhooks)"
+        )
+
+    secret = webhook_secret or ""
+    if secret and not _SECRET_RE.match(secret):
+        raise ValueError("WEBHOOK_SECRET must match [A-Za-z0-9_-]{1,256}")
+    path = secret or "telegram-webhook"
+    return {
+        "mode": "webhook",
+        "listen": "0.0.0.0",
+        "port": int(port or "10000"),
+        "url_path": path,
+        "webhook_url": f"{url}/{path}",
+        "secret_token": secret or None,
+    }
+
+
+# Bot statuses that mean "already in the chat" (so a fresh update is a change, not a join)
+_IN_CHAT_STATUSES = (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER, ChatMember.RESTRICTED)
+
+
+def should_leave_chat(
+    chat_type: str,
+    old_status: str,
+    new_status: str,
+    added_by_id: int | None,
+    owner_id: int,
+) -> bool:
+    """True only when a non-owner has just ADDED the bot to a group.
+
+    Guards against acting on unrelated ``my_chat_member`` updates (promotion,
+    demotion, permission changes), which would otherwise evict the bot from the
+    owner's own groups.
+    """
+    if chat_type not in ("group", "supergroup"):
+        return False
+    was_added = old_status not in _IN_CHAT_STATUSES and new_status in (
+        ChatMember.MEMBER,
+        ChatMember.ADMINISTRATOR,
+    )
+    return was_added and added_by_id != owner_id
 
 
 def get_system_prompt() -> str:
@@ -476,16 +496,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /status command — show current model."""
     model = GEMINI_MODELS[current_model_index]
-    tz_label = MARKET_SUMMARY_TIMEZONE
-    if MARKET_SUMMARY_HOUR >= 0:
-        schedule = f"{MARKET_SUMMARY_HOUR:02d}:{MARKET_SUMMARY_MINUTE:02d} {tz_label}"
-    else:
-        schedule = "disabled"
     text = (
         "📊 Bot Status\n\n"
         f"Current model: {model}\n"
-        f"Available models: {len(GEMINI_MODELS)}\n"
-        f"Daily market summary: {schedule}\n\n"
+        f"Available models: {len(GEMINI_MODELS)}\n\n"
         "Use /model to cycle through models.\n"
         "Use /marketsummary for an on-demand market summary."
     )
@@ -504,19 +518,6 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     chat_id = message.chat_id
     logger.info("Bot mentioned in chat %d", chat_id)
-
-    # Allowlist check (empty = reject all, secure-by-default)
-    if not ALLOWED_CHAT_IDS:
-        logger.warning(
-            "Chat %d blocked: ALLOWED_CHAT_IDS is empty (secure-by-default). "
-            "Add chat IDs to .env to enable bot access.",
-            chat_id
-        )
-        return
-
-    if chat_id not in ALLOWED_CHAT_IDS:
-        logger.info("Chat %d not in allowlist, ignoring", chat_id)
-        return
 
     searching_msg = None
 
@@ -585,6 +586,38 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.info("Model switched: %s → %s", old_model, new_model)
 
 
+async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Leave any group the bot was just added to by someone other than OWNER_ID."""
+    cm = update.my_chat_member
+    if not cm:
+        return
+
+    chat = cm.chat
+    added_by = cm.from_user
+    added_by_id = added_by.id if added_by else None
+    old_status = cm.old_chat_member.status
+    new_status = cm.new_chat_member.status
+
+    if should_leave_chat(chat.type, old_status, new_status, added_by_id, OWNER_ID):
+        logger.warning(
+            "Leaving unauthorized group %s (%s); added by %s (id=%s)",
+            chat.id,
+            chat.title,
+            added_by.username if added_by else "unknown",
+            added_by_id,
+        )
+        try:
+            await context.bot.leave_chat(chat.id)
+        except Exception as e:
+            logger.error("Failed to leave chat %s: %s", chat.id, e)
+    elif (
+        added_by_id == OWNER_ID
+        and old_status not in _IN_CHAT_STATUSES
+        and new_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR)
+    ):
+        logger.info("Joined authorized group %s (%s)", chat.id, chat.title)
+
+
 async def post_init(application: Application) -> None:
     """Auto-detect bot username at startup (clone-friendly)."""
     global BOT_USERNAME
@@ -599,31 +632,25 @@ async def post_init(application: Application) -> None:
 
 
 def main() -> None:
-    """Validate configuration, register handlers, and start polling."""
+    """Validate configuration, register handlers, and start the bot."""
     global gemini_client
 
-    # Validate environment variables
+    # Validate environment variables — exit non-zero so a bad deploy fails visibly
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN.startswith("paste_"):
         logger.error("TELEGRAM_BOT_TOKEN is missing or not configured in .env")
-        return
+        raise SystemExit(1)
     if not GEMINI_API_KEY or GEMINI_API_KEY.startswith("paste_"):
         logger.error("GEMINI_API_KEY is missing or not configured in .env")
-        return
+        raise SystemExit(1)
+    if not OWNER_ID:
+        logger.error(
+            "OWNER_ID is missing. Set it to your numeric Telegram user ID "
+            "(get it from @userinfobot). The bot auto-leaves any group it was "
+            "not added to by this user."
+        )
+        raise SystemExit(1)
 
-    # Validate and warn about access control configuration
-    if not ALLOWED_CHAT_IDS:
-        logger.warning(
-            "⚠️  SECURITY WARNING: ALLOWED_CHAT_IDS is empty.\n"
-            "    Bot will REJECT all group chats (secure-by-default).\n"
-            "    To enable, add chat IDs to .env:\n"
-            "      ALLOWED_CHAT_IDS=-1001234567890,-1009876543210\n"
-            "    Find chat IDs in logs when bot is mentioned in a group."
-        )
-    else:
-        logger.info(
-            "✅ Access control enabled. Allowed chats: %s",
-            ", ".join(str(cid) for cid in ALLOWED_CHAT_IDS)
-        )
+    logger.info("✅ Access control: owner-only. OWNER_ID=%d", OWNER_ID)
 
     # Warn about optional market summary API keys
     if not NEWSDATA_API_KEY:
@@ -649,58 +676,46 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("model", model_command))
-    application.add_handler(CommandHandler("marketsummary", market_summary_command))
+    # /marketsummary fans out to several rate-limited APIs — restrict to group chats
+    application.add_handler(
+        CommandHandler(
+            "marketsummary", market_summary_command, filters=filters.ChatType.GROUPS
+        )
+    )
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
             handle_mention,
         )
     )
+    # Auto-leave groups the owner did not add the bot to
+    application.add_handler(
+        ChatMemberHandler(on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
+    )
 
-    # Schedule daily market summary job (disabled if MARKET_SUMMARY_HOUR < 0)
-    if MARKET_SUMMARY_HOUR >= 0:
-        try:
-            tz = ZoneInfo(MARKET_SUMMARY_TIMEZONE)
-        except Exception:
-            logger.warning(
-                "Invalid MARKET_SUMMARY_TIMEZONE '%s', falling back to UTC",
-                MARKET_SUMMARY_TIMEZONE,
-            )
-            tz = ZoneInfo("UTC")
-
-        summary_time = datetime.time(
-            hour=MARKET_SUMMARY_HOUR,
-            minute=MARKET_SUMMARY_MINUTE,
-            tzinfo=tz,
-        )
-        application.job_queue.run_daily(send_daily_market_summary, time=summary_time)
-        logger.info(
-            "Daily market summary scheduled at %02d:%02d %s",
-            MARKET_SUMMARY_HOUR,
-            MARKET_SUMMARY_MINUTE,
-            MARKET_SUMMARY_TIMEZONE,
+    # Webhook mode in production (WEBHOOK_URL set), long polling for local dev
+    run_mode = resolve_run_mode(
+        os.getenv("WEBHOOK_URL"),
+        os.getenv("WEBHOOK_SECRET"),
+        os.getenv("PORT"),
+    )
+    if run_mode["mode"] == "webhook":
+        logger.info("Bot started in webhook mode on port %d", run_mode["port"])
+        application.run_webhook(
+            listen=run_mode["listen"],
+            port=run_mode["port"],
+            url_path=run_mode["url_path"],
+            webhook_url=run_mode["webhook_url"],
+            secret_token=run_mode["secret_token"],
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
         )
     else:
-        logger.info("Daily market summary job disabled (MARKET_SUMMARY_HOUR < 0)")
-
-    # Start health check server for Render (responds to HTTP health checks)
-    port = int(os.getenv("PORT", 10000))
-
-    class HealthHandler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-
-        def log_message(self, *args):
-            pass  # Suppress noisy HTTP logs
-
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    logger.info("Health check server running on port %d", port)
-
-    logger.info("Bot started. Listening for mentions as %s", BOT_USERNAME)
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info("Bot started in polling mode (WEBHOOK_URL not set)")
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+        )
 
 
 if __name__ == "__main__":

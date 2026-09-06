@@ -1,26 +1,35 @@
 # Deploying askGem to Render (Free Tier)
 
-A complete guide to deploy askGem to Render's free tier for 24/7 hosting.
+A complete guide to deploy askGem to Render's free **Web Service** tier in **webhook mode**.
 
-## What You'll Get
+## How it runs
+
+askGem runs as a Render **Web Service**. When `WEBHOOK_URL` is set it starts in
+webhook mode: Telegram delivers each update as an HTTPS POST to the service, so
+there is no `getUpdates` polling loop (and no 409 conflicts on overlapping
+deploys). With `WEBHOOK_URL` unset the same code falls back to long polling,
+which is what you use for local development.
 
 - **Free Tier Benefits**:
-  - Continuous polling (bot runs while active)
+  - No credit card required
   - Auto-restart on failure
-  - Custom domain support
+  - Managed TLS on `*.onrender.com`
   - Easy environment variable management
   - Git integration for auto-deployments
 
 - **Limitations**:
-  - Free tier services spin down after 15 minutes of inactivity
-  - First request after spin-down has ~30 second delay
-  - Good for active groups; not ideal for dormant groups
+  - The service spins down after **15 minutes** with no inbound traffic
+  - The first mention after spin-down triggers a **~1 minute** cold start;
+    Telegram retries the webhook during the wake-up, so the message is still
+    delivered, just delayed
+  - 750 free instance hours per month per workspace
 
 - **Requirements**:
   - GitHub account (for git integration)
   - Render account (free at https://render.com)
   - Telegram bot token (from @BotFather)
   - Google Gemini API key (from https://aistudio.google.com/)
+  - Your numeric Telegram user ID (from [@userinfobot](https://t.me/userinfobot))
 
 ## Step 1: Prepare Your GitHub Repository
 
@@ -37,7 +46,8 @@ git push origin main  # Push to GitHub
 Your repository should have:
 - `main.py` — bot application
 - `requirements.txt` — Python dependencies
-- `.env.example` — template for environment variables (gitignored)
+- `.python-version` — Python version pin (Render reads this; `3.13` = latest 3.13.x)
+- `.env.example` — template for environment variables
 - `README.md` — documentation
 
 **Key**: Never commit `.env` (contains API keys). Render will set these via dashboard.
@@ -88,16 +98,29 @@ Add these variables (copy the exact keys):
 
 ```
 TELEGRAM_BOT_TOKEN = your_actual_bot_token_here
-GEMINI_API_KEY = your_actual_api_key_here
-ALLOWED_CHAT_IDS = (leave empty for secure-by-default, or add chat IDs like: -1001234567890,-1009876543210)
-PORT = 10000
+GEMINI_API_KEY     = your_actual_api_key_here
+OWNER_ID           = your_numeric_telegram_user_id
+WEBHOOK_URL        = https://<your-service>.onrender.com
+WEBHOOK_SECRET     = <output of: openssl rand -hex 32>
 ```
 
 **How to get these:**
 
 - **TELEGRAM_BOT_TOKEN**: Message [@BotFather](https://t.me/botfather) → `/newbot` → copy token
 - **GEMINI_API_KEY**: Go to [Google AI Studio](https://aistudio.google.com/) → Create API key
-- **ALLOWED_CHAT_IDS**: Leave blank initially. After deploying, check logs for chat IDs
+- **OWNER_ID**: Message [@userinfobot](https://t.me/userinfobot); it replies with your numeric ID
+- **WEBHOOK_URL**: your service's own URL, shown at the top of the Render service page
+  (e.g. `https://askgem.onrender.com`) — no trailing slash. You can add it right
+  after the first deploy and save; Render redeploys automatically.
+- **WEBHOOK_SECRET**: any random token matching `[A-Za-z0-9_-]{1,256}`. It is used
+  both as the secret webhook path and the `X-Telegram-Bot-Api-Secret-Token` header.
+
+Do **not** set `PORT` — Render injects it and the bot reads it automatically.
+
+Leave **Health Check Path** empty. In webhook mode the bot only answers the
+secret webhook path; a health check against `/` returns 404 and Render would mark
+the deploy unhealthy and restart it in a loop. (Render still detects the open
+port, which is all it needs to consider the service live.)
 
 ## Step 3: Deploy
 
@@ -112,54 +135,28 @@ PORT = 10000
 
 The logs should show:
 ```
-✅ Access control enabled. Allowed chats: (or empty - secure-by-default)
+✅ Access control: owner-only. OWNER_ID=123456789
 Gemini client initialised (models: ...)
 Bot username detected: @your_bot_name
-Bot started. Polling...
-Health check server running on port 10000
+Bot started in webhook mode on port 10000
 ```
 
-**Important**: If you see `SECURITY WARNING: ALLOWED_CHAT_IDS is empty`, this is correct — it's secure-by-default. The bot will reject all groups until you add chat IDs.
+If you see `OWNER_ID is missing`, set the `OWNER_ID` environment variable and redeploy.
 
-## Step 4: Authorize Your Groups
+## Step 4: Add the Bot to Your Groups
 
-### 4.1 Add bot to a group
+No per-group configuration is needed. The bot checks who added it: if that
+account is not `OWNER_ID`, it leaves the group immediately.
 
 1. Open Telegram
-2. Create a test group or use an existing one
-3. Add your bot to the group (e.g., `@your_bot_name`)
-4. Mention the bot: `@your_bot_name test`
+2. Add your bot to any group **you** are in (e.g., `@your_bot_name`)
+3. Mention it: `@your_bot_name What's the weather today?`
 
-### 4.2 Check logs for chat ID
+The bot should respond with a search-grounded answer. 🎉
 
-1. Go back to Render dashboard
-2. Click your `askgem` service
-3. Click **Logs** tab
-4. Look for a message like:
-   ```
-   Chat -1001234567890 blocked: ALLOWED_CHAT_IDS is empty (secure-by-default).
-   Add chat IDs to .env to enable bot access.
-   ```
-5. Copy the chat ID (e.g., `-1001234567890`)
-
-### 4.3 Update ALLOWED_CHAT_IDS
-
-1. Go to your Render service
-2. Click **Environment** tab
-3. Edit `ALLOWED_CHAT_IDS`
-4. Add the chat ID: `-1001234567890` (or multiple: `-1001234567890,-1009876543210`)
-5. Click **Save**
-
-Render will auto-redeploy. Check logs to confirm the update took effect.
-
-### 4.4 Test the bot
-
-In your Telegram group:
-```
-@your_bot_name What's the weather today?
-```
-
-The bot should respond with a search-grounded answer! 🎉
+If you add it to a group and it leaves right away, check the logs for
+`Leaving unauthorized group …` — it means the `from_user` id of whoever added
+it did not match `OWNER_ID`.
 
 ## Step 5: Maintenance
 
@@ -174,10 +171,11 @@ The bot should respond with a search-grounded answer! 🎉
 
 | Message | Meaning |
 |---------|---------|
-| `Bot username detected: @your_bot_name` | ✅ Bot started successfully |
+| `Bot started in webhook mode on port …` | ✅ Bot started successfully |
+| `Bot username detected: @your_bot_name` | ✅ Username auto-detected |
 | `Calling model: gemini-2.5-flash-lite` | ✅ Processing a query |
-| `Chat <ID> not in allowlist` | ⚠️ Someone mentioned bot in unauthorized group |
-| `SECURITY WARNING: ALLOWED_CHAT_IDS is empty` | ℹ️ Normal (secure-by-default) |
+| `Joined authorized chat <ID>` | ℹ️ You added the bot to a group |
+| `Leaving unauthorized group <ID>` | ⚠️ Someone else added the bot; it left |
 
 ### Auto-Restarts
 
@@ -201,10 +199,18 @@ Render will detect the push and auto-deploy (you can disable auto-deploy in sett
 ### Bot doesn't respond to mentions
 
 **Check:**
-1. Is chat ID in `ALLOWED_CHAT_IDS`? (Check logs)
-2. Is bot added to the group?
+1. Is the bot still in the group, or did it auto-leave? (logs: `Leaving unauthorized group …`)
+2. Was the bot added by the `OWNER_ID` account?
 3. Did you mention the bot with its actual username?
-4. Check recent logs for errors
+4. First message after 15 min idle: allow ~1 minute for the cold start
+5. Check recent logs for errors
+
+### Webhook not receiving updates
+
+- `WEBHOOK_URL` must be the exact public HTTPS URL of the service, no trailing slash
+- `WEBHOOK_SECRET` must match `[A-Za-z0-9_-]{1,256}`
+- Look for `Bot started in webhook mode` in the logs; if you see `polling mode`
+  instead, `WEBHOOK_URL` is not set on the service
 
 ### API rate limits hit
 
@@ -213,13 +219,9 @@ Render will detect the push and auto-deploy (you can disable auto-deploy in sett
 ### Bot keeps restarting
 
 **Check logs for errors**. Common issues:
-- Invalid API keys (check Environment variables)
+- Invalid API keys or missing `OWNER_ID` (check Environment variables)
 - Missing `requirements.txt` file
 - Syntax errors in `main.py`
-
-### Port 10000 already in use
-
-The bot uses port 10000 for health checks. Render handles this automatically, so this shouldn't be an issue. If it appears in logs, contact Render support.
 
 ## Advanced: Custom Domain
 
@@ -231,21 +233,24 @@ To add a custom domain (optional):
 4. Add your domain (e.g., `askgem.yourdomain.com`)
 5. Follow DNS setup instructions
 
-**Note**: This is optional for the bot to work. The bot uses Telegram's servers for communication, not HTTP.
+**Note**: A custom domain is optional. If you use one, set `WEBHOOK_URL` to that
+domain so Telegram delivers updates there.
 
 ## Cost
 
 **Free Tier is completely free:**
-- ✅ Free tier with 750 compute hours/month allowance
-- ✅ Service spins down after 15 minutes of inactivity
-- ✅ Automatic restart on first request after spin-down
+- ✅ 750 free instance hours/month per workspace
+- ✅ Service spins down after 15 minutes without inbound traffic
 - ✅ No credit card required (unless you upgrade)
 - ✅ Auto-redeploy on git push
-- ✅ SSL certificate included
+- ✅ Managed TLS certificate included
 
 **Uptime Notes:**
-- **Free tier**: Good for active groups (spins down when unused, resumes on mention)
-- **Paid tier**: Required for true 24/7 uptime without spin-down
+- **Free tier**: the first mention after a 15-minute idle wakes the service with
+  a ~1 minute cold start; Telegram retries the webhook so the message still lands.
+  Fine for casual group use.
+- **Paid tier**: an always-on instance (no spin-down) if you need instant replies
+  around the clock.
 
 **You pay for:**
 - Telegram API (free)
@@ -253,10 +258,9 @@ To add a custom domain (optional):
 
 ## Next Steps
 
-1. ✅ Deploy to Render
-2. ✅ Add your group chat IDs
-3. ✅ Test the bot in your groups
-4. ✅ Share the bot with friends (but remember: secure-by-default means you must authorize each group)
+1. ✅ Deploy to Render with `OWNER_ID`, `WEBHOOK_URL`, `WEBHOOK_SECRET`
+2. ✅ Add the bot to your own groups (it auto-leaves any it wasn't added to by you)
+3. ✅ Test with a mention and `/marketsummary`
 
 ## Support
 
