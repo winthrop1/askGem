@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.so
+.pytest_cache/
 
 # Virtual environments
 venv/
